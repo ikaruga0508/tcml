@@ -1,6 +1,6 @@
 from ._consts import TianchiConsts
 from ._loader_configs import KFoldCrossValidationConfig
-from ._utilities import def_log
+from ._utilities import def_log, reduce_memory
 import abc
 import numpy as np
 import pandas as pd
@@ -9,6 +9,7 @@ from sklearn.model_selection import StratifiedKFold, KFold
 
 __all__ = [
     'DataLoaderBase',
+    'DataFrameLoaderBase',
     'DataGeneratorBase',
 ]
 
@@ -27,7 +28,7 @@ class DataLoaderBase(abc.ABC):
         self._train_samples = None
         self._test_samples = None
         # 交叉验证相关
-        self.cv_config: KFoldCrossValidationConfig = None
+        self.cv_config = None
 
     def load(self, testset_from='A', dataset_from=None):
         """数据加载
@@ -54,18 +55,22 @@ class DataLoaderBase(abc.ABC):
 
     @property
     def train_samples(self):
+        """获得训练集"""
         return self._train_samples
 
     @train_samples.setter
     def train_samples(self, train_samples):
+        """设置训练集"""
         self._train_samples = train_samples
 
     @property
     def test_samples(self):
+        """获得测试集"""
         return self._test_samples
 
     @test_samples.setter
     def test_samples(self, test_samples):
+        """设置测试集"""
         self._test_samples = test_samples
 
     @abc.abstractmethod
@@ -230,6 +235,42 @@ class DataLoaderBase(abc.ABC):
             X_test_indices_groups.append(X_test_indices)
 
         return X_indices_groups, X_test_indices_groups
+
+
+class DataFrameLoaderBase(DataLoaderBase):
+    @abc.abstractmethod
+    def get_label_column(self) -> str:
+        """获得标签列名"""
+        pass
+
+    @property
+    def train_samples(self) -> pd.DataFrame:
+        """获得训练集"""
+        return self._train_samples
+
+    @train_samples.setter
+    def train_samples(self, train_samples: pd.DataFrame):
+        """设置训练集"""
+        self._train_samples = train_samples
+
+    @property
+    def test_samples(self) -> pd.DataFrame:
+        """获得测试集"""
+        return self._test_samples
+
+    @test_samples.setter
+    def test_samples(self, test_samples: pd.DataFrame):
+        """设置测试集"""
+        self._test_samples = test_samples
+
+    def get_train_labels(self):
+        """获得训练集的标签"""
+        return self.train_samples[self.label_column]
+
+    def apply_reduce_memory(self) -> None:
+        """申请减少训练集和测试集的内存使用量"""
+        self.train_samples = reduce_memory(self.train_samples, self.log, '训练集')
+        self.test_samples = reduce_memory(self.test_samples, self.log, '测试集')
 
 
 class DataGeneratorBase(DataLoaderBase):

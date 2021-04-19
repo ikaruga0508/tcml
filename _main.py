@@ -26,21 +26,30 @@ class MainBase(abc.ABC):
         self.log = log
         self.seed_idx = 0
 
-        # 创建随机数种子矩阵
-        # TODO: 目录未创建
+        # 读取随机数种子矩阵
         self.seed_matrix = self.load_seed_matrix()
 
         if self.consts.seed_idx in os.environ:
             self.seed_idx = int(os.environ[self.consts.seed_idx])
+            self.log('从环境变量中读取`{}`的值为: {}'.format(self.consts.seed_idx, self.seed_idx))
+        else:
+            self.log('[警告] 环境变量中不存在`{}`，因此默认该值为{}'.format(self.consts.seed_idx, self.seed_idx))
 
     def load_seed_matrix(self):
-        """创建随机数种子矩阵"""
-        if not os.path.exists(self.consts.seed_matrix):
-            seed_matrix = np.random.randint(65535, size=(65535, 100))
-            np.save(self.consts.seed_matrix, seed_matrix)
-            self.log('随机数种子矩阵{}已被创建在{}'.format(seed_matrix.shape, self.consts.seed_matrix))
+        """读取随机数种子矩阵"""
+        if os.path.exists(self.consts.seed_matrix):
+            return np.load(self.consts.seed_matrix)
+        else:
+            self.log('[警告] 随机数种子矩阵文件`{}`不存在，可以执行`init`命令创建'.format(self.consts.seed_matrix))
+            self.log('[警告] 由于随机数种子矩阵文件`{}`不存在，将被随机创建于内存中'.format(self.consts.seed_matrix))
+            return np.random.randint(65535, size=(65535, 100))
 
-        return np.load(self.consts.seed_matrix)
+    def create_seed_matrix(self):
+        """创建随机数种子矩阵"""
+        os.makedirs(self.consts.data_folder, exist_ok=True)
+        seed_matrix = np.random.randint(65535, size=(65535, 100))
+        np.save(self.consts.seed_matrix, seed_matrix)
+        self.log('随机数种子矩阵{}已被创建在{}'.format(seed_matrix.shape, self.consts.seed_matrix))
 
     def set_fixed_seed(self, seed1: int, seed2: int, *objs, **kwargs) -> None:
         """固化随机种子
@@ -65,6 +74,7 @@ class MainBase(abc.ABC):
 
         Returns:
             数据加载器
+            @rtype: object
         """
         self.log('开始加载数据')
         self.data_loader.load(*objs, **kwargs)
@@ -97,4 +107,4 @@ class MainBase(abc.ABC):
             os.makedirs(folder, exist_ok=True)
 
         self.log('工程目录已被创建')
-        self.load_seed_matrix()
+        self.create_seed_matrix()
