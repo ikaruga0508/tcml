@@ -5,10 +5,13 @@ import abc
 import os
 import random
 import numpy as np
+from pandas import DataFrame
 from typing import List, Callable
+import pickle
 
 __all__ = [
     'MainBase',
+    'DataFrameDataMakerBase',
 ]
 
 
@@ -108,3 +111,73 @@ class MainBase(abc.ABC):
 
         self.log('工程目录已被创建')
         self.create_seed_matrix()
+
+
+class DataFrameDataMakerBase(MainBase):
+    @staticmethod
+    def get_train_data_filename() -> str:
+        """处理后训练集的文件名"""
+        return 'train.pkl'
+
+    @staticmethod
+    def get_test_data_filename() -> str:
+        """处理后测试集的文件名"""
+        return 'test.pkl'
+
+    @abc.abstractmethod
+    def _drop_features(self, df: DataFrame) -> DataFrame:
+        """删除不要的特征"""
+        pass
+
+    @abc.abstractmethod
+    def _fillna(self, df: DataFrame) -> DataFrame:
+        """填充必要的NA"""
+        pass
+
+    @abc.abstractmethod
+    def _fillna_others(self, df: DataFrame) -> DataFrame:
+        """当模型不允许传入NA时，填充剩余所有NA"""
+        pass
+
+    @abc.abstractmethod
+    def _convert_features(self, df: DataFrame) -> DataFrame:
+        """处理或转换现有的特征"""
+        pass
+
+    @abc.abstractmethod
+    def _new_features(self, df: DataFrame) -> DataFrame:
+        """使用现有的特征生成新的特征"""
+        pass
+
+    @abc.abstractmethod
+    def _drop_features_handled(self, df: DataFrame) -> DataFrame:
+        """其他处理完毕后，删除不要的特征"""
+        pass
+
+    def make(self, udf: DataFrame, train_idx, test_idx, labels, label_name, folder, description, pipeline):
+        """生成处理过后的训练集和测试集
+        Args:
+            udf: 合并后的数据集，使用DataFrameLoaderBase.get_union_samples()可以获得
+            train_idx: 训练集索引，获得方法同上
+            test_idx: 测试集索引，获得方法同上
+            labels: 标签，获得方法同上
+            label_name: 标签的列名
+            folder: 数据生成在哪个子目录下
+            description: 表述语句，用于日志输出
+            pipeline: 处理的流水线
+        """
+        self.log(description)
+        udf_cloned = udf.copy()
+        for f in pipeline:
+            f(udf_cloned)
+
+        os.makedirs(os.path.join(self.consts.tmp_folder, folder), exist_ok=True)
+
+        train_df = udf_cloned.loc[train_idx]
+        train_df[label_name] = labels
+        train_df.to_pickle(os.path.join(
+            self.consts.tmp_folder, folder, self.get_train_data_filename()), protocol=pickle.DEFAULT_PROTOCOL)
+
+        test_df = udf_cloned.loc[test_idx]
+        test_df.to_pickle(os.path.join(
+            self.consts.tmp_folder, folder, self.get_test_data_filename()), protocol=pickle.DEFAULT_PROTOCOL)

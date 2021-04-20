@@ -14,7 +14,7 @@ def def_log(*objs, **kwargs) -> None:
     print('[{}]'.format(ts), *objs, **kwargs)
 
 
-def reduce_memory(df: pd.DataFrame, log=def_log, df_name : str = None):
+def reduce_memory(df: pd.DataFrame, log=def_log, df_name: str = None):
     """减少DataFrame对象的使用内存量
     Args:
         df: DataFrame对象

@@ -211,7 +211,7 @@ class DataLoaderBase(abc.ABC):
         assert (len(labels) > 0)
 
         # 若为One-Hot向量则自动转化为单值标签
-        if len(labels[0]) > 1:
+        if isinstance(labels[0], list) and len(labels[0]) > 1:
             labels = np.argmax(labels, axis=-1)
 
         # K折无需真实数据，为了节省内存，制造假数据
@@ -265,12 +265,28 @@ class DataFrameLoaderBase(DataLoaderBase):
 
     def get_train_labels(self):
         """获得训练集的标签"""
-        return self.train_samples[self.label_column]
+        return self.train_samples[self.get_label_column()]
+
+    @abc.abstractmethod
+    def get_test_ids(self) -> List:
+        """获得测试集的标识"""
+        pass
 
     def apply_reduce_memory(self) -> None:
         """申请减少训练集和测试集的内存使用量"""
         self.train_samples = reduce_memory(self.train_samples, self.log, '训练集')
         self.test_samples = reduce_memory(self.test_samples, self.log, '测试集')
+
+    def get_union_samples(self):
+        """获得训练集和测试集合并后的结果
+        Returns:
+            (合并后样本集, 训练集索引, 测试集索引, 训练集标签)
+        """
+        train_idx = self.train_samples.index
+        test_idx = self.test_samples.index
+        labels = self.get_train_labels()
+        union_df = pd.concat([self.train_samples[self.test_samples.columns], self.test_samples])
+        return union_df, train_idx, test_idx, labels
 
 
 class DataGeneratorBase(DataLoaderBase):
