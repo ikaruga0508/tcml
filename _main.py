@@ -125,6 +125,11 @@ class DataFrameDataMakerBase(MainBase):
         return 'test.pkl'
 
     @abc.abstractmethod
+    def _pre_process(self, df: DataFrame) -> DataFrame:
+        """预处理"""
+        pass
+
+    @abc.abstractmethod
     def _drop_features(self, df: DataFrame) -> DataFrame:
         """删除不要的特征"""
         pass
@@ -152,6 +157,11 @@ class DataFrameDataMakerBase(MainBase):
     @abc.abstractmethod
     def _drop_features_handled(self, df: DataFrame) -> DataFrame:
         """其他处理完毕后，删除不要的特征"""
+        pass
+
+    @abc.abstractmethod
+    def _post_process(self, df: DataFrame) -> DataFrame:
+        """后处理"""
         pass
 
     def make(self, udf: DataFrame, train_idx, test_idx, labels, label_name, folder, description, pipeline):

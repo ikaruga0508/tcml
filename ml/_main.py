@@ -17,6 +17,7 @@ class MachineLearningMainBase(MainBase):
             dl: DataFrameLoaderBase,
             fit_func: Callable[[DataFrame, Series, DataFrame, Series], None],
             predict_func: Callable[[DataFrame], List],
+            complete_func: Callable[[], None] = None,
             val_rate: float = 0.2,
             result_filepath: str = None
     ) -> None:
@@ -29,6 +30,9 @@ class MachineLearningMainBase(MainBase):
             predict_func: 预测回调函数，需在里面完成predict()或者predict_proba()
                       参数: 测试集数据
                       返回值: 预测结果
+            complete_func: 完成时回调函数，其中可包含任意操作
+                      参数: 无
+                      返回值: 无
             val_rate: 验证集比例
             result_filepath: 预测结果保存的路径
         """
@@ -52,11 +56,15 @@ class MachineLearningMainBase(MainBase):
             else:
                 self.log('预测结果无法生成，上层目录不`{}`存在'.format(folder))
 
+        if complete_func is not None:
+            complete_func()
+
     def train_predict_with_cv(
             self,
             dl: DataFrameLoaderBase,
             fit_func: Callable[[DataFrame, Series, DataFrame, Series], None],
             predict_func: Callable[[DataFrame], List],
+            complete_func: Callable[[], None] = None,
             n_splits: int = 5,
             stratified: bool = True,
             result_filepath: str = None
@@ -70,6 +78,9 @@ class MachineLearningMainBase(MainBase):
             predict_func: 预测回调函数，需在里面完成predict()或者predict_proba()
                       参数: 测试集数据
                       返回值: 预测结果
+            complete_func: 完成时回调函数，其中可包含任意操作
+                      参数: 无
+                      返回值: 无
             n_splits: 折数
             stratified: 是否分层(保持标签的分布相同)
             result_filepath: 预测结果保存的路径(中间需要有且仅有一个占位符，折数将填入其中)
@@ -96,6 +107,9 @@ class MachineLearningMainBase(MainBase):
                     self.save_results(y_pred, ids, filepath)
                 else:
                     self.log('预测结果无法生成，上层目录不`{}`存在'.format(folder))
+
+        if complete_func is not None:
+            complete_func()
 
     @abc.abstractmethod
     def save_results(self, y_pred, ids: List, filepath: str) -> None:
