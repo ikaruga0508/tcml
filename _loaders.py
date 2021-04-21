@@ -211,7 +211,8 @@ class DataLoaderBase(abc.ABC):
         assert (len(labels) > 0)
 
         # 若为One-Hot向量则自动转化为单值标签
-        if isinstance(labels[0], list) and len(labels[0]) > 1:
+        label_size = np.shape(labels)
+        if len(label_size) >= 2:
             labels = np.argmax(labels, axis=-1)
 
         # K折无需真实数据，为了节省内存，制造假数据
