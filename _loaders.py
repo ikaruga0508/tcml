@@ -194,13 +194,16 @@ class DataLoaderBase(abc.ABC):
         """
         return ((sample_count - 1) // batch_size) + 1
 
-    def get_train_sample_indices_for_kfold(self, n_splits=5, stratified=True, shuffle=True, shuffle_in_indices=True):
+    def get_train_sample_indices_for_kfold(self, n_splits=5, stratified=True, shuffle=True, shuffle_in_indices=True,
+                                           verbose=True, random_state=None):
         """获得K折后的训练集的索引矩阵
         Args:
             n_splits: 折数
             stratified: 是否分层(保持标签的分布相同)
             shuffle: 在K折处理中是否打乱顺序(该参数传递给KFold或者StratifiedKFold)
             shuffle_in_indices: KFold或者StratifiedKFold返回的索引顺序是从小到大的，是否打乱索引顺序
+            verbose: 打印Debug信息
+            random_state: 随机状态
 
         Returns:
             (训练集的索引矩阵, 测试集的索引矩阵)
@@ -219,23 +222,32 @@ class DataLoaderBase(abc.ABC):
         X_dummy = np.zeros_like(labels)
 
         if stratified:
-            kfold = StratifiedKFold(n_splits, shuffle=shuffle)
+            kfold = StratifiedKFold(n_splits, shuffle=shuffle, random_state=random_state)
             gen = kfold.split(X_dummy, labels)
         else:
-            kfold = KFold(n_splits, shuffle=shuffle)
+            kfold = KFold(n_splits, shuffle=shuffle, random_state=random_state)
             gen = kfold.split(X_dummy, labels)
 
         X_indices_groups = []
-        X_test_indices_groups = []
-        for X_indices, X_test_indices in gen:
+        X_val_indices_groups = []
+        for X_indices, X_val_indices in gen:
             if shuffle_in_indices:
                 np.random.shuffle(X_indices)
-                np.random.shuffle(X_test_indices)
+                np.random.shuffle(X_val_indices)
 
             X_indices_groups.append(X_indices)
-            X_test_indices_groups.append(X_test_indices)
+            X_val_indices_groups.append(X_val_indices)
 
-        return X_indices_groups, X_test_indices_groups
+        if verbose:
+            max_print_count = 3
+            for i, (X_indices, X_val_indices) in enumerate(zip(X_indices_groups, X_val_indices_groups)):
+                self.log('第{}折训练集/验证集索引: [{} ...], [{} ...]'.format(
+                    i + 1,
+                    ' '.join(map(str, X_indices[0:max_print_count])),
+                    ' '.join(map(str, X_val_indices[0:max_print_count])),
+                ))
+
+        return X_indices_groups, X_val_indices_groups
 
 
 class DataFrameLoaderBase(DataLoaderBase):

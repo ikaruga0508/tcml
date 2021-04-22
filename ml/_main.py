@@ -1,6 +1,8 @@
 import abc
 import os.path
 
+import pandas as pd
+
 from .._main import MainBase
 from .._loaders import DataFrameLoaderBase
 from typing import Callable, List
@@ -67,7 +69,8 @@ class MachineLearningMainBase(MainBase):
             complete_func: Callable[[], None] = None,
             n_splits: int = 5,
             stratified: bool = True,
-            result_filepath: str = None
+            result_filepath: str = None,
+            result_folder_for_ensemble: str = None,
     ) -> None:
         """执行训练与预测(交叉验证模式)
         Args:
@@ -84,6 +87,10 @@ class MachineLearningMainBase(MainBase):
             n_splits: 折数
             stratified: 是否分层(保持标签的分布相同)
             result_filepath: 预测结果保存的路径(中间需要有且仅有一个占位符，折数将填入其中)
+            result_folder_for_ensemble: 用于模型融合的预测结果保存目录
+                                        训练集的预测结果将携带索引和真实结果保存成 X_result_{第N折}.pkl
+                                        验证集的预测结果将携带索引和真实结果保存成 X_val_result_{第N折}.pkl
+                                        测试集的预测结果将携带id保存成 X_test_result_{第N折}.pkl
         """
         self.log('开始训练({}折交叉验证)'.format(n_splits))
         X_indices_list, X_val_indices_list = dl.get_train_sample_indices_for_kfold(n_splits, stratified)
@@ -98,15 +105,37 @@ class MachineLearningMainBase(MainBase):
             y_val = labels.loc[X_val_indices]
             X_test = dl.test_samples
 
+            # 训练
             fit_func(X, y, X_val, y_val)
+
+            # 预测
+            y_pred_on_X_test = None
+
             if result_filepath is not None:
                 filepath = result_filepath.format(i + 1)
                 folder = os.path.dirname(filepath)
                 if os.path.exists(folder):
-                    y_pred = predict_func(X_test)
-                    self.save_results(y_pred, ids, filepath)
+                    y_pred_on_X_test = predict_func(X_test)
+                    self.save_results(y_pred_on_X_test, ids, filepath)
                 else:
                     self.log('预测结果无法生成，上层目录不`{}`存在'.format(folder))
+
+            if result_folder_for_ensemble is not None:
+                os.makedirs(result_folder_for_ensemble, exist_ok=True)
+                # 训练集预测结果
+                y_pred_on_X = predict_func(X)
+                df = pd.DataFrame({dl.get_label_column(): y_pred_on_X, 'y_true': y}, index=X.index)
+                df.to_pickle(os.path.join(result_folder_for_ensemble, 'X_result_{}.pkl').format(i + 1))
+                # 验证集预测结果
+                y_pred_on_X_val = predict_func(X_val)
+                df = pd.DataFrame({dl.get_label_column(): y_pred_on_X_val, 'y_true': y_val}, index=X_val.index)
+                df.to_pickle(os.path.join(result_folder_for_ensemble, 'X_val_result_{}.pkl').format(i + 1))
+                # 测试集预测结果
+                if y_pred_on_X_test is None:
+                    y_pred_on_X_test = predict_func(X_test)
+
+                df = pd.DataFrame(y_pred_on_X_test, columns=[dl.get_label_column()], index=ids)
+                df.to_pickle(os.path.join(result_folder_for_ensemble, 'X_test_result_{}.pkl').format(i + 1))
 
         if complete_func is not None:
             complete_func()
