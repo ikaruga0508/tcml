@@ -83,6 +83,10 @@ class MainBase(abc.ABC):
         self.data_loader.load(*objs, **kwargs)
         return self.data_loader
 
+    def get_default_entry(self) -> Callable[[List], None]:
+        """默认入口"""
+        return None
+
     def handle(self, argv: List) -> None:
         """处理函数
         Args:
@@ -94,7 +98,11 @@ class MainBase(abc.ABC):
             self.log('执行 {}([{}])'.format(method_name, ', '.join(map(lambda x: "'{}'".format(x), argv[2:]))))
             eval(method_name)(argv[2:])
         else:
-            self.log('参数错误(至少有一个)')
+            default_entry = self.get_default_entry()
+            if default_entry is not None:
+                default_entry([])
+            else:
+                self.log('参数错误(至少有一个)')
 
     def run_init(self, params):
         """初始化"""

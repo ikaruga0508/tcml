@@ -43,6 +43,7 @@ class MachineLearningMainBase(MainBase):
         X_indices, X_val_indices = dl.split_train_indices(val_rate)
         labels = dl.get_train_labels()
         ids = dl.get_test_ids()
+        self.log('划分比例: {:.2f}, 训练集: {}件, 验证集: {}件'.format(val_rate, len(X_indices), len(X_val_indices)))
 
         X = dl.train_samples.loc[X_indices].drop(columns=[dl.get_label_column()])
         y = labels.loc[X_indices]
@@ -56,6 +57,7 @@ class MachineLearningMainBase(MainBase):
             if os.path.exists(folder):
                 y_pred = predict_func(X_test)
                 self.save_results(y_pred, ids, result_filepath)
+                self.log('预测结果保存至`{}`'.format(result_filepath))
             else:
                 self.log('预测结果无法生成，上层目录不`{}`存在'.format(folder))
 
@@ -67,7 +69,7 @@ class MachineLearningMainBase(MainBase):
             dl: DataFrameLoaderBase,
             fit_func: Callable[[DataFrame, Series, DataFrame, Series], None],
             predict_func: Callable[[DataFrame], List],
-            complete_func: Callable[[], None] = None,
+            complete_func: Callable[[DataFrame], None] = None,
             n_splits: int = 5,
             stratified: bool = True,
             result_filepath: str = None,
@@ -83,7 +85,7 @@ class MachineLearningMainBase(MainBase):
                       参数: 测试集数据
                       返回值: 预测结果
             complete_func: 完成时回调函数，其中可包含任意操作
-                      参数: 无
+                      参数: 在所有测试集上的预测结果，包含两列['y_pred', 'y_true']
                       返回值: 无
             n_splits: 折数
             stratified: 是否分层(保持标签的分布相同)
@@ -98,6 +100,9 @@ class MachineLearningMainBase(MainBase):
         labels = dl.get_train_labels()
         ids = dl.get_test_ids()
 
+        # 预测
+        y_preds_on_X_val = []
+
         for i, (X_indices, X_val_indices) in enumerate(zip(X_indices_list, X_val_indices_list)):
             self.log('执行第{}折'.format(i + 1))
             X = dl.train_samples.loc[X_indices].drop(columns=[dl.get_label_column()])
@@ -109,9 +114,6 @@ class MachineLearningMainBase(MainBase):
             # 训练
             fit_func(X, y, X_val, y_val)
 
-            # 预测
-            y_pred_on_X_test = None
-
             if result_filepath is not None:
                 filepath = result_filepath.format(i + 1)
                 folder = os.path.dirname(filepath)
@@ -121,28 +123,30 @@ class MachineLearningMainBase(MainBase):
                 else:
                     self.log('预测结果无法生成，上层目录不`{}`存在'.format(folder))
 
+            if complete_func is not None or result_folder_for_ensemble is not None:
+                # 需要验证集预测结果
+                y_pred_on_X_val = predict_func(X_val)
+                df_val = pd.DataFrame({'y_pred': y_pred_on_X_val, 'y_true': y_val}, index=X_val.index)
+                y_preds_on_X_val.append(df_val)
+
             if result_folder_for_ensemble is not None:
                 os.makedirs(result_folder_for_ensemble, exist_ok=True)
                 # 训练集预测结果
                 y_pred_on_X = predict_func(X)
-                df = pd.DataFrame({dl.get_label_column(): y_pred_on_X, 'y_true': y}, index=X.index)
+                df = pd.DataFrame({'y_pred': y_pred_on_X, 'y_true': y}, index=X.index)
                 df.to_pickle(os.path.join(result_folder_for_ensemble, 'X_result_{}.pkl').format(i + 1),
                              protocol=pickle.DEFAULT_PROTOCOL)
                 # 验证集预测结果
-                y_pred_on_X_val = predict_func(X_val)
-                df = pd.DataFrame({dl.get_label_column(): y_pred_on_X_val, 'y_true': y_val}, index=X_val.index)
-                df.to_pickle(os.path.join(result_folder_for_ensemble, 'X_val_result_{}.pkl').format(i + 1),
-                             protocol=pickle.DEFAULT_PROTOCOL)
+                df_val.to_pickle(os.path.join(result_folder_for_ensemble, 'X_val_result_{}.pkl').format(i + 1),
+                                 protocol=pickle.DEFAULT_PROTOCOL)
                 # 测试集预测结果
-                if y_pred_on_X_test is None:
-                    y_pred_on_X_test = predict_func(X_test)
-
-                df = pd.DataFrame(y_pred_on_X_test, columns=[dl.get_label_column()], index=ids)
+                y_pred_on_X_test = predict_func(X_test)
+                df = pd.DataFrame(y_pred_on_X_test, columns=['y_pred'], index=ids)
                 df.to_pickle(os.path.join(result_folder_for_ensemble, 'X_test_result_{}.pkl').format(i + 1),
                              protocol=pickle.DEFAULT_PROTOCOL)
 
         if complete_func is not None:
-            complete_func()
+            complete_func(pd.concat(y_preds_on_X_val))
 
     @abc.abstractmethod
     def save_results(self, y_pred, ids: List, filepath: str) -> None:
