@@ -127,19 +127,19 @@ class MachineLearningMainBase(MainBase):
                 y_pred_on_X = predict_func(X)
                 df = pd.DataFrame({dl.get_label_column(): y_pred_on_X, 'y_true': y}, index=X.index)
                 df.to_pickle(os.path.join(result_folder_for_ensemble, 'X_result_{}.pkl').format(i + 1),
-                             protocal=pickle.DEFAULT_PROTOCOL)
+                             protocol=pickle.DEFAULT_PROTOCOL)
                 # 验证集预测结果
                 y_pred_on_X_val = predict_func(X_val)
                 df = pd.DataFrame({dl.get_label_column(): y_pred_on_X_val, 'y_true': y_val}, index=X_val.index)
                 df.to_pickle(os.path.join(result_folder_for_ensemble, 'X_val_result_{}.pkl').format(i + 1),
-                             protocal=pickle.DEFAULT_PROTOCOL)
+                             protocol=pickle.DEFAULT_PROTOCOL)
                 # 测试集预测结果
                 if y_pred_on_X_test is None:
                     y_pred_on_X_test = predict_func(X_test)
 
                 df = pd.DataFrame(y_pred_on_X_test, columns=[dl.get_label_column()], index=ids)
                 df.to_pickle(os.path.join(result_folder_for_ensemble, 'X_test_result_{}.pkl').format(i + 1),
-                             protocal=pickle.DEFAULT_PROTOCOL)
+                             protocol=pickle.DEFAULT_PROTOCOL)
 
         if complete_func is not None:
             complete_func()
