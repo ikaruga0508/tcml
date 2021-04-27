@@ -187,7 +187,7 @@ class DataFrameDataMakerBase(MainBase):
         self.log(description)
         udf_cloned = udf.copy()
         for f in pipeline:
-            f(udf_cloned)
+            udf_cloned = f(udf_cloned)
 
         os.makedirs(os.path.join(self.consts.tmp_folder, folder), exist_ok=True)
 
