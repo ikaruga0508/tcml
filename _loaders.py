@@ -285,10 +285,13 @@ class DataFrameLoaderBase(DataLoaderBase):
         """获得测试集的标识"""
         pass
 
-    def apply_reduce_memory(self) -> None:
-        """申请减少训练集和测试集的内存使用量"""
-        self.train_samples = reduce_memory(self.train_samples, self.log, '训练集')
-        self.test_samples = reduce_memory(self.test_samples, self.log, '测试集')
+    def apply_reduce_memory(self, use_float16: bool = False) -> None:
+        """申请减少训练集和测试集的内存使用量
+        Args:
+            use_float16: 是否使用16位浮点数(16位浮点数的精度比32位差不少)
+        """
+        self.train_samples = reduce_memory(self.train_samples, self.log, '训练集', use_float16)
+        self.test_samples = reduce_memory(self.test_samples, self.log, '测试集', use_float16)
 
     def get_union_samples(self):
         """获得训练集和测试集合并后的结果

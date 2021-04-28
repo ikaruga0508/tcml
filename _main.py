@@ -193,9 +193,11 @@ class DataFrameDataMakerBase(MainBase):
 
         train_df = udf_cloned.loc[train_idx]
         train_df[label_name] = labels
-        train_df.to_pickle(os.path.join(
-            self.consts.tmp_folder, folder, self.get_train_data_filename()), protocol=pickle.DEFAULT_PROTOCOL)
+        train_filepath = os.path.join(self.consts.tmp_folder, folder, self.get_train_data_filename())
+        train_df.to_pickle(train_filepath, protocol=pickle.DEFAULT_PROTOCOL)
+        self.log('共计{}行，{}列的数据保存至`{}`文件中'.format(len(train_df), len(train_df.columns), train_filepath))
 
         test_df = udf_cloned.loc[test_idx]
-        test_df.to_pickle(os.path.join(
-            self.consts.tmp_folder, folder, self.get_test_data_filename()), protocol=pickle.DEFAULT_PROTOCOL)
+        test_filepath = os.path.join(self.consts.tmp_folder, folder, self.get_test_data_filename())
+        test_df.to_pickle(test_filepath, protocol=pickle.DEFAULT_PROTOCOL)
+        self.log('共计{}行，{}列的数据保存至`{}`文件中'.format(len(test_df), len(test_df.columns), test_filepath))

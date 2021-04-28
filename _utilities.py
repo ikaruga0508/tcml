@@ -14,12 +14,13 @@ def def_log(*objs, **kwargs) -> None:
     print('[{}]'.format(ts), *objs, **kwargs)
 
 
-def reduce_memory(df: pd.DataFrame, log=def_log, df_name: str = None):
+def reduce_memory(df: pd.DataFrame, log=def_log, df_name: str = None, use_float16: bool = False):
     """减少DataFrame对象的使用内存量
     Args:
         df: DataFrame对象
         log: 日志对象
         df_name: DataFrame对象的名字
+        use_float16: 是否使用16位浮点数(16位浮点数的精度比32位差不少)
 
     Returns:
         处理过后的DataFrame对象
@@ -52,7 +53,7 @@ def reduce_memory(df: pd.DataFrame, log=def_log, df_name: str = None):
                 col_astype(_col_min, _col_max, df, column, np.int32, False) or\
                 col_astype(_col_min, _col_max, df, column, np.int64, False)
             elif column_type in float_types:
-                col_astype(_col_min, _col_max, df, column, np.float16, True) or\
+                (use_float16 and col_astype(_col_min, _col_max, df, column, np.float16, True)) or\
                 col_astype(_col_min, _col_max, df, column, np.float32, True)
 
     new_mem_used = df.memory_usage().sum() / 1024**2
