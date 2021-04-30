@@ -280,10 +280,16 @@ class DataFrameDataMakerBase(MainBase):
         if new_column_names is None:
             new_column_names = [None] * len(targets)
 
-        new_column_names = list(map(
-            lambda x: '{}_{}'.format(x[0], aggregate_name) if x[1] is None else x[1],
-            zip(targets, new_column_names)
-        ))
+        # 把特征全部转换成数组形式
+        targets = [[target] if not isinstance(target, (list, tuple)) else list(target) for target in targets]
+
+        def _make_new_column_name(ori_col, new_col):
+            if new_col is None:
+                return '{}_{}'.format('_'.join(ori_col), aggregate_name)
+            else:
+                return new_col
+
+        new_column_names = list(map(lambda x: _make_new_column_name(x[0], x[1]), zip(targets, new_column_names)))
 
         if aggregate_func is None:
             aggregate_func = self.aggr_mean
@@ -311,11 +317,14 @@ class DataFrameDataMakerBase(MainBase):
                 new_columns_dict.setdefault(new_column_name, [])
 
                 # 获得用于聚合运算的数据
-                raw_values = train_df.loc[X_indices, [target, label_name]]
+                raw_values = train_df.loc[X_indices, [*target, label_name]]
                 agg_values = aggregate_func(raw_values, target, label_name)
                 agg_values.name = new_column_name
                 values = train_df.loc[X_val_indices].merge(
-                    agg_values, how='left', left_on=target, right_index=True)[[target, new_column_name]]
+                    agg_values, how='left', left_on=target, right_index=True)[[*target, new_column_name]]
+                # 对仅在X_val_indices上存在的个别值，使用X_indices上计算得到的全局平均值进行填充
+                values.loc[~values[target].isna().any(axis=1) & values[new_column_name].isna(), new_column_name]\
+                    = raw_values[label_name].mean()
                 new_columns_dict[new_column_name].append(values)
 
         # 对测试集数据进行填充
@@ -325,9 +334,10 @@ class DataFrameDataMakerBase(MainBase):
             values_on_train = pd.concat(new_columns_dict[new_column_name])
             agg_on_train = values_on_train.groupby(target).mean(new_column_name)
             values = test_df.merge(
-                agg_on_train, how='left', left_on=target, right_index=True)[[target, new_column_name]]
+                agg_on_train, how='left', left_on=target, right_index=True)[[*target, new_column_name]]
             # 原始列本来就是NA的不进行填充
-            values.loc[~values[target].isna(), new_column_name] = values_on_train.mean()
+            values.loc[~values[target].isna().any(axis=1) & values[new_column_name].isna(), new_column_name]\
+                = values_on_train[new_column_name].mean()
             new_columns_dict[new_column_name].append(values)
 
         for new_column_name, values in new_columns_dict.items():

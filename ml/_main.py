@@ -6,7 +6,7 @@ import pickle
 
 from .._main import MainBase
 from .._loaders import DataFrameLoaderBase
-from typing import Callable, List
+from typing import Callable, List, Dict
 from pandas import DataFrame, Series
 import numpy as np
 import glob
@@ -171,6 +171,83 @@ class MachineLearningMainBase(MainBase):
         """获得默认的集成学习根目录"""
         return os.path.join(self.consts.output_folder, 'ensemble')
 
+    def ensemble_on_val(self,
+                        targets: List,
+                        func_dict: Dict[str, Callable[[List[List]], List]],
+                        metric_func: Callable[[List, List], float],
+                        ensemble_root_folder=None
+                        ):
+        """在验证集上实施各种模型融合以观察效果
+        Args:
+            targets: 参与融合的模型列表
+            func_dict: 用来实施融合的方法字典
+            metric_func: 评价方法
+            ensemble_root_folder: 用于模型融合的中间数据的根目录(不设置则将自动设置为get_default_ensemble_root()返回的目录)
+        """
+        if ensemble_root_folder is None:
+            ensemble_root_folder = self.get_default_ensemble_root()
+
+        # 融合对象的存在性检查
+        dirs_not_exists = list(filter(lambda x: not os.path.isdir(os.path.join(ensemble_root_folder, x)), targets))
+        if len(dirs_not_exists) > 0:
+            self.log('以下对象集成学习的目录不存在，请先使用K折交叉验证方式创建')
+            self.log('\t{}'.format(', '.join(dirs_not_exists)))
+            return
+
+        data = []
+        # 标签
+        labels = None
+        for target in targets:
+            folder = os.path.join(ensemble_root_folder, target)
+            self.log('读取`{}`中的数据'.format(folder))
+
+            # 获得验证集预测结果
+            df = pd.concat([pd.read_pickle(path) for path in glob.glob(os.path.join(folder, 'X_val_result_*.pkl'))])
+            data.append(df['y_pred'].sort_index())
+            if labels is None:
+                labels = df['y_true'].sort_index()
+
+        for key, func in func_dict.items():
+            merged = func(data)
+            score = metric_func(labels, merged)
+            print('{}: {}'.format(key, score))
+
+    def ensemble(self,
+                 targets: List,
+                 func: Callable[[List[Series]], Series],
+                 result_filepath: str,
+                 ensemble_root_folder=None,
+                 ) -> None:
+        """实施模型融合
+        Args:
+            targets: 参与融合的模型列表
+            func: 实施融合的方法
+            result_filepath: 预测结果保存的路径
+            ensemble_root_folder: 用于模型融合的中间数据的根目录(不设置则将自动设置为get_default_ensemble_root()返回的目录)
+        """
+        if ensemble_root_folder is None:
+            ensemble_root_folder = self.get_default_ensemble_root()
+
+        # 融合对象的存在性检查
+        dirs_not_exists = list(filter(lambda x: not os.path.isdir(os.path.join(ensemble_root_folder, x)), targets))
+        if len(dirs_not_exists) > 0:
+            self.log('以下对象集成学习的目录不存在，请先使用K折交叉验证方式创建')
+            self.log('\t{}'.format(', '.join(dirs_not_exists)))
+            return
+
+        test_ds = []
+        for target in targets:
+            folder = os.path.join(ensemble_root_folder, target)
+            self.log('读取`{}`中的数据'.format(folder))
+
+            # 获得测试集预测结果
+            results = [pd.read_pickle(path) for path in glob.glob(os.path.join(folder, 'X_test_result_*.pkl'))]
+            ids = results[0].index
+            test_ds.append(pd.Series(np.squeeze(np.mean(np.array(results), axis=0), axis=-1), index=ids, name=target))
+
+        y_pred = func(test_ds)
+        self.save_results(y_pred, ids, result_filepath)
+
     def stacking(self,
                  targets: List,
                  fit_func: Callable[[DataFrame, Series], None],
@@ -240,3 +317,15 @@ class MachineLearningMainBase(MainBase):
             filepath: 预测结果保存的路径
         """
         pass
+
+    @staticmethod
+    def merge_with_simple_mean(y_preds: List[List]) -> List:
+        return np.mean(y_preds, axis=0)
+
+    @staticmethod
+    def merge_with_geometric_mean(y_preds: List[List]) -> List:
+        return np.array(y_preds).prod(axis=0) ** (1 / len(y_preds))
+
+    @staticmethod
+    def merge_with_rank(y_preds: List[Series]) -> List:
+        return np.array([y_pred.rank(pct=True) for y_pred in y_preds]).prod(axis=0) ** (1 / len(y_preds))
