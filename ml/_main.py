@@ -327,5 +327,5 @@ class MachineLearningMainBase(MainBase):
         return np.array(y_preds).prod(axis=0) ** (1 / len(y_preds))
 
     @staticmethod
-    def merge_with_rank(y_preds: List[Series]) -> List:
+    def merge_with_rank_mean(y_preds: List[Series]) -> List:
         return np.array([y_pred.rank(pct=True) for y_pred in y_preds]).prod(axis=0) ** (1 / len(y_preds))
