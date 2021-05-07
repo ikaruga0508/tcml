@@ -61,7 +61,7 @@ class MachineLearningMainBase(MainBase):
                 self.save_results(y_pred, ids, result_filepath)
                 self.log('预测结果保存至`{}`'.format(result_filepath))
             else:
-                self.log('预测结果无法生成，上层目录不`{}`存在'.format(folder))
+                self.log('预测结果无法生成，上层目录`{}`不存在'.format(folder))
 
         if complete_func is not None:
             complete_func()
@@ -133,7 +133,7 @@ class MachineLearningMainBase(MainBase):
                     y_pred_on_X_test = predict_func(X_test)
                     self.save_results(y_pred_on_X_test, ids, filepath)
                 else:
-                    self.log('预测结果无法生成，上层目录不`{}`存在'.format(folder))
+                    self.log('预测结果无法生成，上层目录`{}`不存在'.format(folder))
 
             if complete_func is not None or result_folder_for_ensemble is not None:
                 # 需要验证集预测结果
