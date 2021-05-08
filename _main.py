@@ -227,21 +227,39 @@ class DataFrameDataMakerBase(MainBase):
             aggregate_on_all: 是否在合并后的数据上做聚合计算(False的话只在训练集上)
             new_column_names: 新列的名字数组
                               如果为None的话，全部默认为`{target}_freq`
-                              如果不为None，数组长度需要和targets相同，并且其中如果存在None元素，则设置为`{target}_freq`
+                              如果不为None，数组长度需要和targets相同
+                                  对于None元素，则设置为`{target}_freq`
+                                  对于非None元素，则设置为`{new_col_name}_freq`
         """
+        if len(targets) == 0:
+            return udf
+
         if new_column_names is None:
             new_column_names = [None] * len(targets)
+
+        assert(len(new_column_names) == len(targets))
+
+        # 把特征全部转换成数组形式
+        targets = [[target] if not isinstance(target, (list, tuple)) else list(target) for target in targets]
+
+        def _make_new_column_name(ori_col, new_col):
+            if new_col is None:
+                base_name = '_'.join(ori_col)
+            else:
+                base_name = new_col
+
+            return '{}_{}'.format(base_name, 'freq')
+
+        new_column_names = list(map(lambda x: _make_new_column_name(x[0], x[1]), zip(targets, new_column_names)))
 
         udf_cloned = udf.copy()
 
         for target, new_column_name in zip(targets, new_column_names):
+            target = target if len(target) > 1 else target[0]
             if aggregate_on_all:
                 aggr_data = udf[target]
             else:
                 aggr_data = udf.loc[train_idx, target]
-
-            if new_column_name is None:
-                new_column_name = '{}_freq'.format(target)
 
             values = aggr_data.value_counts() / len(aggr_data)
             values.name = new_column_name
@@ -249,9 +267,137 @@ class DataFrameDataMakerBase(MainBase):
 
         return udf_cloned
 
+    def target_encoding_on_feat(
+            self, targets, udf: DataFrame, train_idx, target_feat_name, aggregate_on_all: bool = False,
+            new_column_names: List = None,
+            aggregate_funcs: List[Callable[[DataFrame, str, str], Series]] = None,
+            aggregate_names: List[str] = None
+    ) -> DataFrame:
+        """目标特征上的编码
+        Args:
+            targets: 目标列数组
+            udf: 合并后的数据集
+            train_idx: 训练集索引
+            target_feat_name: 目标特征名
+            aggregate_on_all: 是否在合并后的数据上做聚合计算(False的话只在训练集上)
+            new_column_names: 新列的名字数组
+                              如果为None的话，全部默认为`{target}_{aggregate_name}`
+                              如果不为None，数组长度需要和targets相同
+                                  对于None元素，则设置为`{target}_{aggregate_name}`
+                                  对于非None元素，则设置为`{new_col_name}_{aggregate_name}`
+            aggregate_funcs: 聚合函数数组
+            aggregate_names: 聚合名称数组
+        """
+        if len(targets) == 0:
+            return udf
+
+        if new_column_names is None:
+            new_column_names = [None] * len(targets)
+
+        assert(len(new_column_names) == len(targets))
+
+        # 把特征全部转换成数组形式
+        targets = [[target] if not isinstance(target, (list, tuple)) else list(target) for target in targets]
+
+        def _make_new_column_name(ori_col, new_col, feat_name):
+            if new_col is None:
+                return '{}-{}'.format('_'.join(ori_col), feat_name)
+            else:
+                return new_col
+
+        new_column_names = [_make_new_column_name(target, new_column_name, target_feat_name)
+                            for target, new_column_name in zip(targets, new_column_names)]
+
+        if aggregate_funcs is None:
+            aggregate_funcs = [self.aggr_mean]
+
+        if aggregate_names is None:
+            aggregate_names = list(map(
+                lambda x: x.replace('aggr_', '') if x.startswith('aggr_') else x,
+                [func.__name__ for func in aggregate_funcs]
+            ))
+
+        assert(len(aggregate_funcs) == len(aggregate_names))
+
+        udf_cloned = udf.copy()
+
+        for aggregate_func, aggregate_name in zip(aggregate_funcs, aggregate_names):
+
+            new_col_names = list(map(lambda x: '{}_{}'.format(x, aggregate_name), new_column_names))
+
+            for target, new_col_name in zip(targets, new_col_names):
+                if aggregate_on_all:
+                    aggr_data = udf
+                else:
+                    aggr_data = udf.loc[train_idx]
+
+                agg_values = aggregate_func(aggr_data, target, target_feat_name)
+                agg_values.name = new_col_name
+                udf_cloned = udf_cloned.merge(agg_values, how='left', left_on=target, right_index=True)
+
+        return udf_cloned
+
+    def target_encoding_on_feat_with_kfold(
+            self, targets, udf: DataFrame, train_idx, test_idx, target_feat_name,
+            new_column_names: List = None,
+            aggregate_funcs: List[Callable[[DataFrame, str, str], Series]] = None,
+            aggregate_names: List[str] = None,
+            n_splits=5, stratified=True, shuffle=True, shuffle_in_indices=True, verbose=True,
+            random_state: int = None
+    ) -> DataFrame:
+        """目标特征上的编码(使用K折)
+        Args:
+            targets: 目标列数组
+            udf: 合并后的数据集
+            train_idx: 训练集索引
+            test_idx: 测试集索引
+            target_feat_name: 目标特征名
+            new_column_names: 新列的名字数组
+                              如果为None的话，全部默认为`{target}_{aggregate_name}`
+                              如果不为None，数组长度需要和targets相同
+                                  对于None元素，则设置为`{target}_{aggregate_name}`
+                                  对于非None元素，则设置为`{new_col_name}_{aggregate_name}`
+            aggregate_funcs: 聚合函数数组
+            aggregate_names: 聚合名称数组
+
+            # 以下参数用于get_train_sample_indices_for_kfold()
+            n_splits: 折数
+            stratified: 是否分层(保持标签的分布相同)
+            shuffle: 在K折处理中是否打乱顺序(该参数传递给KFold或者StratifiedKFold)
+            shuffle_in_indices: KFold或者StratifiedKFold返回的索引顺序是从小到大的，是否打乱索引顺序
+            verbose: 打印Debug信息
+            random_state: 随机状态
+        """
+        if len(targets) == 0:
+            return udf
+
+        if new_column_names is None:
+            new_column_names = [None] * len(targets)
+
+        assert(len(new_column_names) == len(targets))
+
+        # 把特征全部转换成数组形式
+        targets = [[target] if not isinstance(target, (list, tuple)) else list(target) for target in targets]
+
+        def _make_new_column_name(ori_col, new_col, feat_name):
+            if new_col is None:
+                return '{}-{}'.format('_'.join(ori_col), feat_name)
+            else:
+                return new_col
+
+        new_column_names = [_make_new_column_name(target, new_column_name, target_feat_name)
+                            for target, new_column_name in zip(targets, new_column_names)]
+
+        return self.target_encoding(
+            targets, udf, train_idx, test_idx, udf.loc[train_idx, target_feat_name], target_feat_name,
+            new_column_names, aggregate_funcs, aggregate_names,
+            n_splits, stratified, shuffle, shuffle_in_indices, verbose, random_state
+        )
+
     def target_encoding(self, targets, udf: DataFrame, train_idx, test_idx, labels, label_name,
-                        aggregate_func: Callable[[DataFrame, str, str], Series] = None,
-                        new_column_names: List = None, aggregate_name: str = 'mean',
+                        new_column_names: List = None,
+                        aggregate_funcs: List[Callable[[DataFrame, str, str], Series]] = None,
+                        aggregate_names: List[str] = None,
                         n_splits=5, stratified=True, shuffle=True, shuffle_in_indices=True, verbose=True,
                         random_state: int = None
                         ) -> DataFrame:
@@ -263,11 +409,13 @@ class DataFrameDataMakerBase(MainBase):
             test_idx: 测试集索引
             labels: 标签
             label_name: 标签的列名
-            aggregate_func: 聚合函数
             new_column_names: 新列的名字数组
                               如果为None的话，全部默认为`{target}_{aggregate_name}`
-                              如果不为None，数组长度需要和targets相同，并且其中如果存在None元素，则设置为`{target}_{aggregate_name}`
-            aggregate_name: 聚合名称
+                              如果不为None，数组长度需要和targets相同
+                                  对于None元素，则设置为`{target}_{aggregate_name}`
+                                  对于非None元素，则设置为`{new_col_name}_{aggregate_name}`
+            aggregate_funcs: 聚合函数数组
+            aggregate_names: 聚合名称数组
 
             # 以下参数用于get_train_sample_indices_for_kfold()
             n_splits: 折数
@@ -277,22 +425,35 @@ class DataFrameDataMakerBase(MainBase):
             verbose: 打印Debug信息
             random_state: 随机状态
         """
+        if len(targets) == 0:
+            return udf
+
         if new_column_names is None:
             new_column_names = [None] * len(targets)
+
+        assert(len(new_column_names) == len(targets))
 
         # 把特征全部转换成数组形式
         targets = [[target] if not isinstance(target, (list, tuple)) else list(target) for target in targets]
 
-        def _make_new_column_name(ori_col, new_col):
+        def _make_new_column_name(ori_col, new_col, aggr_name):
             if new_col is None:
-                return '{}_{}'.format('_'.join(ori_col), aggregate_name)
+                base_name = '_'.join(ori_col)
             else:
-                return new_col
+                base_name = new_col
 
-        new_column_names = list(map(lambda x: _make_new_column_name(x[0], x[1]), zip(targets, new_column_names)))
+            return '{}_{}'.format(base_name, aggr_name)
 
-        if aggregate_func is None:
-            aggregate_func = self.aggr_mean
+        if aggregate_funcs is None:
+            aggregate_funcs = [self.aggr_mean]
+
+        if aggregate_names is None:
+            aggregate_names = list(map(
+                lambda x: x.replace('aggr_', '') if x.startswith('aggr_') else x,
+                [func.__name__ for func in aggregate_funcs]
+            ))
+
+        assert(len(aggregate_funcs) == len(aggregate_names))
 
         udf_cloned = udf.copy()
         train_df = udf.loc[train_idx].copy()
@@ -304,44 +465,49 @@ class DataFrameDataMakerBase(MainBase):
         X_indices_list, X_val_indices_list = self.data_loader.get_train_sample_indices_for_kfold(
             n_splits, stratified, shuffle, shuffle_in_indices, verbose, random_state)
 
-        new_columns_dict = {}
-        # 对训练集数据进行填充
-        for X_indices, X_val_indices in zip(X_indices_list, X_val_indices_list):
-            # 通过get_train_sample_indices_for_kfold()得到的索引都是基于0开始的[0, N-1]，真实索引可能乱序也不一定基于0
-            # 所以需要通过以下代码获得真正的索引
-            X_indices = train_idx[X_indices]
-            X_val_indices = train_idx[X_val_indices]
+        for aggregate_func, aggregate_name in zip(aggregate_funcs, aggregate_names):
+            new_columns_dict = {}
 
-            # X_val_indices上数据的编码来源于X_indices上数据的聚合运算
-            for target, new_column_name in zip(targets, new_column_names):
-                new_columns_dict.setdefault(new_column_name, [])
+            new_col_names = list(map(
+                lambda x: _make_new_column_name(x[0], x[1], aggregate_name), zip(targets, new_column_names)))
 
-                # 获得用于聚合运算的数据
-                raw_values = train_df.loc[X_indices, [*target, label_name]]
-                agg_values = aggregate_func(raw_values, target, label_name)
-                agg_values.name = new_column_name
-                values = train_df.loc[X_val_indices].merge(
-                    agg_values, how='left', left_on=target, right_index=True)[[*target, new_column_name]]
-                # 对仅在X_val_indices上存在的个别值，使用X_indices上计算得到的全局平均值进行填充
-                values.loc[~values[target].isna().any(axis=1) & values[new_column_name].isna(), new_column_name]\
-                    = raw_values[label_name].mean()
-                new_columns_dict[new_column_name].append(values)
+            # 对训练集数据进行填充
+            for X_indices, X_val_indices in zip(X_indices_list, X_val_indices_list):
+                # 通过get_train_sample_indices_for_kfold()得到的索引都是基于0开始的[0, N-1]，真实索引可能乱序也不一定基于0
+                # 所以需要通过以下代码获得真正的索引
+                X_indices = train_idx[X_indices]
+                X_val_indices = train_idx[X_val_indices]
 
-        # 对测试集数据进行填充
-        # 如果某原始列的某值在训练集中存在，则使用该值对应新列所有值的平均值
-        # 如果不存在(连接后会导致新值为NA)，则使用新列所有值的平均值来填充NA
-        for target, new_column_name in zip(targets, new_column_names):
-            values_on_train = pd.concat(new_columns_dict[new_column_name])
-            agg_on_train = values_on_train.groupby(target).mean(new_column_name)
-            values = test_df.merge(
-                agg_on_train, how='left', left_on=target, right_index=True)[[*target, new_column_name]]
-            # 原始列本来就是NA的不进行填充
-            values.loc[~values[target].isna().any(axis=1) & values[new_column_name].isna(), new_column_name]\
-                = values_on_train[new_column_name].mean()
-            new_columns_dict[new_column_name].append(values)
+                # X_val_indices上数据的编码来源于X_indices上数据的聚合运算
+                for target, new_col_name in zip(targets, new_col_names):
+                    new_columns_dict.setdefault(new_col_name, [])
 
-        for new_column_name, values in new_columns_dict.items():
-            udf_cloned[new_column_name] = pd.concat(values)[new_column_name]
+                    # 获得用于聚合运算的数据
+                    raw_values = train_df.loc[X_indices, [*target, label_name]]
+                    agg_values = aggregate_func(raw_values, target, label_name)
+                    agg_values.name = new_col_name
+                    values = train_df.loc[X_val_indices].merge(
+                        agg_values, how='left', left_on=target, right_index=True)[[*target, new_col_name]]
+                    # 对仅在X_val_indices上存在的个别值，使用X_indices上计算得到的全局平均值进行填充
+                    values.loc[~values[target].isna().any(axis=1) & values[new_col_name].isna(), new_col_name]\
+                        = raw_values[label_name].mean()
+                    new_columns_dict[new_col_name].append(values)
+
+            # 对测试集数据进行填充
+            # 如果某原始列的某值在训练集中存在，则使用该值对应新列所有值的平均值
+            # 如果不存在(连接后会导致新值为NA)，则使用新列所有值的平均值来填充NA
+            for target, new_col_name in zip(targets, new_col_names):
+                values_on_train = pd.concat(new_columns_dict[new_col_name])
+                agg_on_train = values_on_train.groupby(target).mean(new_col_name)
+                values = test_df.merge(
+                    agg_on_train, how='left', left_on=target, right_index=True)[[*target, new_col_name]]
+                # 原始列本来就是NA的不进行填充
+                values.loc[~values[target].isna().any(axis=1) & values[new_col_name].isna(), new_col_name]\
+                    = values_on_train[new_col_name].mean()
+                new_columns_dict[new_col_name].append(values)
+
+            for new_col_name, values in new_columns_dict.items():
+                udf_cloned[new_col_name] = pd.concat(values)[new_col_name]
 
         return udf_cloned
 
@@ -354,6 +520,48 @@ class DataFrameDataMakerBase(MainBase):
             label_name: 标签的列名
 
         Returns:
-            均值编码后的Series对象
+            编码后的Series对象
         """
         return df.groupby(target).agg({label_name: 'mean'})[label_name]
+
+    @staticmethod
+    def aggr_median(df: DataFrame, target, label_name) -> Series:
+        """中间值编码
+        Args:
+            df: 聚合运算的数据集
+            target: 目标列
+            label_name: 标签的列名
+
+        Returns:
+            编码后的Series对象
+        """
+        return df.groupby(target).agg({label_name: 'median'})[label_name]
+
+    @staticmethod
+    def aggr_std(df: DataFrame, target, label_name) -> Series:
+        """标准差编码
+        Args:
+            df: 聚合运算的数据集
+            target: 目标列
+            label_name: 标签的列名
+
+        Returns:
+            编码后的Series对象
+        """
+        return df.groupby(target).agg({label_name: 'std'})[label_name]
+
+    @staticmethod
+    def aggr_entropy(df: DataFrame, target, label_name) -> Series:
+        """熵编码
+        Args:
+            df: 聚合运算的数据集
+            target: 目标列
+            label_name: 标签的列名
+
+        Returns:
+            编码后的Series对象
+        """
+        def _entropy(x):
+            return np.sum([-(value / len(x)) * np.log2(value / len(x)) for value in x.value_counts()])
+
+        return df.groupby(target).agg({label_name: _entropy})[label_name]
